@@ -49,8 +49,8 @@ class LogEntryAdminMixin(object):
     resource_url.short_description = 'Resource'
 
     def msg_short(self, obj):
-        if obj.action == 2:
-            return ''  # delete
+        if obj.action in [LogEntry.Action.DELETE, LogEntry.Action.VIEW]:
+            return ''
         changes = json.loads(obj.changes)
         s = '' if len(changes) == 1 else 's'
         fields = ', '.join(changes.keys())
@@ -61,8 +61,8 @@ class LogEntryAdminMixin(object):
     msg_short.short_description = 'Changes'
 
     def msg(self, obj):
-        if obj.action == 2:
-            return ''  # delete
+        if obj.action in [LogEntry.Action.DELETE, LogEntry.Action.VIEW]:
+            return ''
         changes = json.loads(obj.changes)
         msg = '<table><tr><th>#</th><th>Field</th><th>From</th><th>To</th></tr>'
         for i, field in enumerate(sorted(changes), 1):
