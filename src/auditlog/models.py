@@ -62,6 +62,44 @@ class LogEntryManager(models.Manager):
             return self.create(**kwargs) if db is None or db == '' else self.using(db).create(**kwargs)
         return None
 
+    def force_log_create(self, instance, **kwargs):
+        """
+        Helper method to force the creation of a new log entry even if no changes were made. This method automatically
+        populates some fields when no explicit value is given.
+
+        :param instance: The model instance to log a change for.
+        :type instance: Model
+        :param kwargs: Field overrides for the :py:class:`LogEntry` object.
+        :return: The new log entry
+        :rtype: LogEntry
+        """
+        pk = self._get_pk_value(instance)
+
+        kwargs.setdefault('content_type', ContentType.objects.get_for_model(instance))
+        kwargs.setdefault('object_pk', pk)
+        kwargs.setdefault('object_repr', smart_text(instance))
+
+        if isinstance(pk, integer_types):
+            kwargs.setdefault('object_id', pk)
+
+        get_additional_data = getattr(instance, 'get_additional_data', None)
+        if callable(get_additional_data):
+            kwargs.setdefault('additional_data', get_additional_data())
+
+        # Delete log entries with the same pk as a newly created model. This should only be necessary when an pk is
+        # used twice.
+        if kwargs.get('action', None) is LogEntry.Action.CREATE:
+            if kwargs.get('object_id', None) is not None and self.filter(content_type=kwargs.get('content_type'),
+                                                                         object_id=kwargs.get(
+                                                                                 'object_id')).exists():
+                self.filter(content_type=kwargs.get('content_type'), object_id=kwargs.get('object_id')).delete()
+            else:
+                self.filter(content_type=kwargs.get('content_type'), object_pk=kwargs.get('object_pk', '')).delete()
+
+        # save LogEntry to same database instance is using
+        db = instance._state.db
+        return self.create(**kwargs) if db is None or db == '' else self.using(db).create(**kwargs)
+
     def get_for_object(self, instance):
         """
         Get log entries for the specified model instance.
@@ -161,11 +199,13 @@ class LogEntry(models.Model):
 
         The valid actions are :py:attr:`Action.CREATE`, :py:attr:`Action.UPDATE` and :py:attr:`Action.DELETE`.
         """
-        CREATE = 0
-        UPDATE = 1
-        DELETE = 2
+        VIEW = 0
+        CREATE = 1
+        UPDATE = 2
+        DELETE = 3
 
         choices = (
+            (VIEW, _("view")),
             (CREATE, _("create")),
             (UPDATE, _("update")),
             (DELETE, _("delete")),
@@ -191,6 +231,8 @@ class LogEntry(models.Model):
         verbose_name_plural = _("log entries")
 
     def __str__(self):
+        if self.action == self.Action.VIEW:
+            fstring = _("Viewed {repr:s}")
         if self.action == self.Action.CREATE:
             fstring = _("Created {repr:s}")
         elif self.action == self.Action.UPDATE:

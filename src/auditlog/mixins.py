@@ -11,6 +11,8 @@ except ImportError:
     from django.core.urlresolvers import NoReverseMatch
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from .models import LogEntry
+from .registry import auditlog
 
 MAX = 75
 
@@ -70,3 +72,58 @@ class LogEntryAdminMixin(object):
         msg += '</table>'
         return mark_safe(msg)
     msg.short_description = 'Changes'
+
+
+class ViewedViewSetMixin:
+    """
+    Mixin for Django Rest Framework ViewSets that will create a log entry when someone views an instance of a Model
+    """
+
+    def retrieve(self, request, *args, **kwargs):
+        # Get the object being retrieved and check that it has been registered with the registry
+        obj = self.get_object()
+
+        if auditlog.contains(obj):
+            # Get the current authenticated user and their IP address
+            user = request.user if request.user and request.user.is_authenticated else None
+            remote_addr = request.META.get('REMOTE_ADDR')
+
+            # In case of proxy, set 'original' address
+            if request.META.get('HTTP_X_FORWARDED_FOR'):
+                remote_addr = request.META.get('HTTP_X_FORWARDED_FOR').split(',')[0]
+
+            # Force the creation of a new LogEntry
+            LogEntry.objects.force_log_create(
+                obj,
+                action=LogEntry.Action.VIEW,
+                actor=user,
+                remote_addr=remote_addr
+            )
+
+        return super().retrieve(request, *args, **kwargs)
+
+
+class ViewedDetailViewMixin:
+    """
+    Mixin for Django DetailViews that will create a log entry when someone requests this DetailView
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        if auditlog.contains(self.model):
+            # Get the current authenticated user and their IP address
+            user = request.user if request.user and request.user.is_authenticated else None
+            remote_addr = request.META.get('REMOTE_ADDR')
+
+            # In case of proxy, set 'original' address
+            if request.META.get('HTTP_X_FORWARDED_FOR'):
+                remote_addr = request.META.get('HTTP_X_FORWARDED_FOR').split(',')[0]
+
+            # Force the creation of a new LogEntry
+            LogEntry.objects.force_log_create(
+                self.get_object(),
+                action=LogEntry.Action.VIEW,
+                actor=user,
+                remote_addr=remote_addr
+            )
+
+        return super.dispatch(request, *args, **kwargs)
