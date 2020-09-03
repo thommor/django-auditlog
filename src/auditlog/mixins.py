@@ -83,7 +83,7 @@ class ViewedViewSetMixin:
         # Get the object being retrieved and check that it has been registered with the registry
         obj = self.get_object()
 
-        if auditlog.contains(obj):
+        if auditlog.contains(obj.__class__):
             # Get the current authenticated user and their IP address
             user = request.user if request.user and request.user.is_authenticated else None
             remote_addr = request.META.get('REMOTE_ADDR')
